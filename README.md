@@ -71,6 +71,7 @@ $database['wordpress']['default'] = array(
 The module automatically creates hidden fields to store legacy data.
 
 | WordPress Field | Backdrop Field | Visibility | Description |
+| --- | --- | --- | --- |
 | ID | field_wp_guid | Hidden | Integer. Used for syncing. |
 | user_login | name | Public | Unique username. |
 | user_email | mail | Private | Unique email. |
