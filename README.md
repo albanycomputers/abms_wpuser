@@ -35,6 +35,7 @@ Enable the module.
 1. **Database Configuration**
 
  - Before running the migration, you must define the connection to the WordPress database in your site's settings.php. The prefix must be empty to query wp_users directly.
+ - 'host' could be 127.0.0.1, localhost or a URL to the database.
 
 ```
 $databases['default']['default'] = array(
