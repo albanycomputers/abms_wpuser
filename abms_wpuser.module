@@ -1,0 +1,380 @@
+<?php
+/**
+ * @file
+ * Manages the migration of users from WordPress to Backdrop CMS.
+ */
+
+/**
+ * Implements hook_menu().
+ */
+function abms_wpuser_menu() {
+  $items = array();
+
+  $items['admin/config/acuity'] = array(
+    'title' => 'Acuity Utilities',
+    'description' => 'Configuration for Acuity brand utilities and tools.',
+    'position' => 'right',
+    'weight' => -10,
+    'page callback' => 'system_admin_menu_block_page',
+    'access arguments' => array('access administration pages'),
+    'file' => 'system.admin.inc',
+    'file path' => backdrop_get_path('module', 'system'),
+  );
+
+  $items['admin/config/acuity/wpuser'] = array(
+    'title' => 'WP User Migration',
+    'description' => 'Import users from the WordPress database.',
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => array('abms_wpuser_settings_form'),
+    'access arguments' => array('administer users'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_config_info().
+ */
+function abms_wpuser_config_info() {
+  $prefixes['abms_wpuser.settings'] = array(
+    'label' => t('Acuity WP User Settings'),
+    'group' => t('Acuity'),
+  );
+  return $prefixes;
+}
+
+/**
+ * Settings and execution form.
+ */
+function abms_wpuser_settings_form($form, &$form_state) {
+  $config = config('abms_wpuser.settings');
+  $form['#config'] = 'abms_wpuser.settings';
+
+  $form['#prefix'] = '<div class="help-block">' . t('Ensure you have defined the external database connection in settings.php (e.g., $database[\'wordpress\']).') . '</div>';
+
+  $form['db_key'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Database Key'),
+    '#description' => t('The key defined in settings.php for the WordPress database.'),
+    '#default_value' => $config->get('db_key') ? $config->get('db_key') : 'wordpress',
+    '#required' => TRUE,
+  );
+
+  $form['batch_size'] = array(
+    '#type' => 'number',
+    '#title' => t('Batch Size'),
+    '#description' => t('Number of users to process per batch step.'),
+    '#default_value' => $config->get('batch_size') ? $config->get('batch_size') : 50,
+    '#required' => TRUE,
+  );
+
+  $form['actions']['#type'] = 'actions';
+  $form['actions']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Save Configuration'),
+  );
+
+  $form['actions']['test'] = array(
+    '#type' => 'submit',
+    '#value' => t('Test Connection & Count Users'),
+    '#submit' => array('abms_wpuser_test_connection_submit'),
+  );
+
+  $form['actions']['import'] = array(
+    '#type' => 'submit',
+    '#value' => t('Run Migration'),
+    '#submit' => array('abms_wpuser_import_submit'),
+    '#attributes' => array('class' => array('button-primary')),
+  );
+
+  return system_settings_form($form);
+}
+
+/**
+ * Validation handler for settings form.
+ */
+function abms_wpuser_settings_form_validate($form, &$form_state) {
+  $db_key = $form_state['values']['db_key'];
+  $info = Database::getConnectionInfo($db_key);
+
+  if (empty($info)) {
+    form_set_error('db_key', t('The database key "@key" was not found in settings.php.', array('@key' => $db_key)));
+    return;
+  }
+
+  try {
+    $connection = Database::getConnection('default', $db_key);
+    $connection->query('SELECT 1');
+
+    if (isset($form_state['triggering_element']) && $form_state['triggering_element']['#value'] == t('Save Configuration')) {
+      backdrop_set_message(t('Connection to database "@key" successful.', array('@key' => $db_key)));
+    }
+  }
+  catch (Exception $e) {
+    form_set_error('db_key', t('Database connection failed: @error', array('@error' => $e->getMessage())));
+  }
+}
+
+/**
+ * Submit handler for the "Test Connection" button.
+ */
+function abms_wpuser_test_connection_submit($form, &$form_state) {
+  $db_key = $form_state['values']['db_key'];
+  try {
+    $connection = Database::getConnection('default', $db_key);
+    if (!$connection->schema()->tableExists('wp_users')) {
+       backdrop_set_message(t('Connection successful, but "wp_users" table not found. Check prefix/DB name.'), 'error');
+       $form_state['rebuild'] = TRUE;
+       return;
+    }
+    $count_query = $connection->select('wp_users', 'u');
+    $count_query->addExpression('COUNT(u.ID)', 'count');
+    $total_users = $count_query->execute()->fetchField();
+    backdrop_set_message(t('Success! Found @count users in table "wp_users".', array('@count' => $total_users)), 'status');
+  }
+  catch (Exception $e) {
+    backdrop_set_message(t('Test failed: @error', array('@error' => $e->getMessage())), 'error');
+  }
+  $form_state['rebuild'] = TRUE;
+}
+
+/**
+ * Submit handler for the "Run Migration" button.
+ */
+function abms_wpuser_import_submit($form, &$form_state) {
+  $db_key = $form_state['values']['db_key'];
+  $batch_size = $form_state['values']['batch_size'];
+
+  try {
+    $connection = Database::getConnection('default', $db_key);
+    $count_query = $connection->select('wp_users', 'u');
+    $count_query->addExpression('COUNT(u.ID)', 'count');
+    $total_users = $count_query->execute()->fetchField();
+  }
+  catch (Exception $e) {
+    backdrop_set_message(t('Could not connect: @error', array('@error' => $e->getMessage())), 'error');
+    return;
+  }
+
+  $batch = array(
+    'title' => t('Migrating WordPress Users'),
+    'operations' => array(
+      array('abms_wpuser_batch_process', array($db_key, $total_users, $batch_size)),
+    ),
+    'finished' => 'abms_wpuser_batch_finished',
+    'file' => backdrop_get_path('module', 'abms_wpuser') . '/abms_wpuser.module',
+  );
+
+  batch_set($batch);
+}
+
+/**
+ * Batch Operation: Process users.
+ */
+function abms_wpuser_batch_process($db_key, $total, $limit, &$context) {
+  if (empty($context['sandbox'])) {
+    $context['sandbox']['progress'] = 0;
+    $context['sandbox']['max'] = $total;
+    $context['sandbox']['last_id'] = 0;
+  }
+
+  try {
+    $connection = Database::getConnection('default', $db_key);
+
+    // 1. Get Main User Data
+    $query = $connection->select('wp_users', 'u');
+    $query->fields('u', array('ID', 'user_login', 'user_pass', 'user_email', 'user_registered', 'display_name', 'user_status'));
+    $query->condition('u.ID', $context['sandbox']['last_id'], '>');
+    $query->orderBy('u.ID', 'ASC');
+    $query->range(0, $limit);
+    $results = $query->execute();
+  }
+  catch (Exception $e) {
+    $context['results']['errors'][] = $e->getMessage();
+    $context['finished'] = 1;
+    return;
+  }
+
+  foreach ($results as $wp_user) {
+    $account = abms_wpuser_find_existing($wp_user);
+    $is_new_user = FALSE;
+
+    if (!$account) {
+      $account = new User();
+      $account->is_new = TRUE;
+      $account->created = strtotime($wp_user->user_registered);
+
+      // CRITICAL: Explicitly silence email notifications.
+      $account->notify = FALSE;
+
+      $is_new_user = TRUE;
+    }
+
+    // --- Basic Mapping ---
+    $account->name = $wp_user->user_login;
+    $account->mail = $wp_user->user_email;
+    $account->init = $wp_user->user_email;
+    $account->status = ($wp_user->user_status == 0) ? 1 : 0; // WP 0 = Active
+    $account->field_wp_guid[LANGUAGE_NONE][0]['value'] = $wp_user->ID;
+
+    if (!empty($wp_user->display_name)) {
+      $account->field_display_name[LANGUAGE_NONE][0]['value'] = $wp_user->display_name;
+    }
+
+    // --- Meta Data Extraction ---
+    try {
+      $meta_query = $connection->select('wp_usermeta', 'm');
+      $meta_query->fields('m', array('meta_key', 'meta_value'));
+      $meta_query->condition('m.user_id', $wp_user->ID);
+      $meta_query->condition('m.meta_key', array('first_name', 'last_name', 'description', 'wp_capabilities', 'wp_user_level'), 'IN');
+      $meta_results = $meta_query->execute()->fetchAllKeyed(); // Returns array(key => value)
+
+      // Map First Name
+      if (!empty($meta_results['first_name'])) {
+        $account->field_first_name[LANGUAGE_NONE][0]['value'] = $meta_results['first_name'];
+      }
+
+      // Map Last Name
+      if (!empty($meta_results['last_name'])) {
+        $account->field_last_name[LANGUAGE_NONE][0]['value'] = $meta_results['last_name'];
+      }
+
+      // Map Bio (Description)
+      if (!empty($meta_results['description'])) {
+        $account->field_wp_bio[LANGUAGE_NONE][0]['value'] = $meta_results['description'];
+      }
+
+      // Map Capabilities
+      if (!empty($meta_results['wp_capabilities'])) {
+        $account->field_wp_capabilities[LANGUAGE_NONE][0]['value'] = $meta_results['wp_capabilities'];
+      }
+
+      // Map User Level (Integer)
+      if (isset($meta_results['wp_user_level'])) {
+        $account->field_wp_user_level[LANGUAGE_NONE][0]['value'] = $meta_results['wp_user_level'];
+      }
+
+    }
+    catch (Exception $e) {
+      // Meta fetch failed, log but continue saving user
+    }
+
+
+    // --- Save User ---
+    try {
+      $account->save();
+
+      // SECURITY: Safe Password Injection
+      $should_update_pass = FALSE;
+
+      if ($is_new_user) {
+        // Always update password for new imports
+        $should_update_pass = TRUE;
+      }
+      elseif ($account->uid == 1) {
+        // SAFETY: Never overwrite User 1 (Root Admin) password
+        $should_update_pass = FALSE;
+      }
+      elseif (!empty($account->pass)) {
+         // Check current hash type. Backdrop standard hashes start with $S$
+         $is_backdrop_hash = (substr($account->pass, 0, 3) === '$S$');
+
+         // Only overwrite if it is NOT a secure Backdrop hash.
+         // This preserves passwords for users who have already upgraded.
+         if (!$is_backdrop_hash) {
+             $should_update_pass = TRUE;
+         }
+      }
+
+      if ($should_update_pass) {
+        db_update('users')
+          ->fields(array('pass' => $wp_user->user_pass))
+          ->condition('uid', $account->uid)
+          ->execute();
+      }
+
+      $context['results']['processed']++;
+    }
+    catch (Exception $e) {
+      $context['results']['errors'][] = "Failed ID {$wp_user->ID}: " . $e->getMessage();
+    }
+
+    $context['sandbox']['progress']++;
+    $context['sandbox']['last_id'] = $wp_user->ID;
+  }
+
+  if ($context['sandbox']['progress'] != $context['sandbox']['max']) {
+    $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
+  }
+}
+
+/**
+ * Helper: Find existing user by WP GUID or Email.
+ */
+function abms_wpuser_find_existing($wp_user) {
+  $query = new EntityFieldQuery();
+  $query->entityCondition('entity_type', 'user')
+    ->fieldCondition('field_wp_guid', 'value', $wp_user->ID);
+  $result = $query->execute();
+
+  if (isset($result['user'])) {
+    $uids = array_keys($result['user']);
+    return user_load(reset($uids));
+  }
+
+  $account = user_load_by_mail($wp_user->user_email);
+  if ($account) {
+    return $account;
+  }
+
+  $account = user_load_by_name($wp_user->user_login);
+  if ($account) {
+    return $account;
+  }
+
+  return FALSE;
+}
+
+/**
+ * Batch Finished Callback.
+ */
+function abms_wpuser_batch_finished($success, $results, $operations) {
+  if ($success) {
+    $message = format_plural(isset($results['processed']) ? $results['processed'] : 0, 'One user processed.', '@count users processed.');
+    backdrop_set_message($message);
+  }
+  else {
+    backdrop_set_message(t('Finished with an error.'), 'error');
+  }
+
+  if (!empty($results['errors'])) {
+    foreach ($results['errors'] as $error) {
+      backdrop_set_message($error, 'error');
+    }
+  }
+}
+
+/**
+ * Implements hook_field_access().
+ * * Controls field visibility for 'view' and 'edit' operations.
+ */
+function abms_wpuser_field_access($op, $field, $entity_type, $entity, $account) {
+  // Define strict internal fields that standard users should NEVER see or edit.
+  $internal_fields = array(
+    'field_wp_guid',
+    'field_wp_capabilities',
+    'field_wp_user_level',
+  );
+
+  if (in_array($field['field_name'], $internal_fields)) {
+    // Only administrators (or those with explicit user admin rights) can see/edit these.
+    return user_access('administer users', $account);
+  }
+
+  // Note: field_first_name, field_last_name, field_wp_bio, and field_display_name
+  // return TRUE (default) here, meaning they follow standard permission rules
+  // (users can usually edit their own profile fields).
+
+  return TRUE;
+}

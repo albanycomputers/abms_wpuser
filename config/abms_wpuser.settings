@@ -1,0 +1,5 @@
+{
+  "_config_name": "abms_wpuser.settings",
+  "db_key": "wordpress",
+  "batch_size": 50
+}
