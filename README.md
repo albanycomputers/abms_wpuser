@@ -87,7 +87,7 @@ The module automatically creates hidden fields to store legacy data.
 
 ### Password Handling
 
-**Injection:** Passwords are injected as raw WordPress hashes (\$P$... or \$H$...). These are incompatible with Backdrop until the user logs in via the ***Acuity WP Auth Handler***.
+**Injection:** Passwords are injected as raw WordPress hashes (```$P$```... or ```$H$```...). These are incompatible with Backdrop until the user logs in via the ***Acuity WP Auth Handler***.
 
 **Safety Check:** If a user has already logged into Backdrop and upgraded to a secure hash ($S$...), re-running this migration will not overwrite their password.
 
