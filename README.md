@@ -11,7 +11,7 @@ We recommend deleteing any unneeded fields we created for the import process onc
 
 ## Initial version
 
-This is an alpha release proof of concept and for code review.
+This is an beta release for code review and testing.
 
 ### Compatibility notes:
 This module is a utility intended for migration purposes. It is designed to work in tandem with Acuity Auth Handler (abms_auth) to allow migrated users to log in using their legacy passwords.
