@@ -108,10 +108,10 @@ Bio data (field_wp_bio) is imported raw from WordPress. If the source site conta
 
 ## Issues:
 
-Bugs and Feature requests should be reported in the Issue Queue: https://github.com/albanycomputers/abms_wpuser/issues
+Bugs and Feature requests should be reported in the Issue Queue: https://github.com/backdrop-contrib/abms_wpuser/issues
 
 ## Current Maintainer(s):
-- [Steve Moorhouse (albanycomputers)] (https://github.com/albanycomputers)
+- Steve Moorhouse (albanycomputers) (https://github.com/albanycomputers)
 - Seeking additional maintainers and contributors.
 
 ## Credits:
@@ -119,9 +119,9 @@ Bugs and Feature requests should be reported in the Issue Queue: https://github.
 - Google Gemini 3.0 assisted with the coding of this module.
 
 ## Sponsorship:
-- [Albany Computer Services] (https://www.albany-computers.co.uk)
-- [Albany Web Design] (https://www.albanywebdesign.co.uk)
-- [Albany Hosting] (https://www.albany-hosting.co.uk)
+- Albany Computer Services (https://www.albany-computers.co.uk)
+- Albany Web Design (https://www.albanywebdesign.co.uk)
+- Albany Hosting (https://www.albany-hosting.co.uk)
 
 ## License
 This project is GPL v2 software. See the LICENSE.txt file in this directory for complete text.
