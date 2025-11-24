@@ -10,6 +10,7 @@
 function abms_wpuser_menu() {
   $items = array();
 
+  // TODO - add check for menu path existence before adding Acuity parent
   $items['admin/config/acuity'] = array(
     'title' => 'Acuity Utilities',
     'description' => 'Configuration for Acuity brand utilities and tools.',

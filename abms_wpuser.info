@@ -1,10 +1,9 @@
-name = Acuity2 WordPress User Import
+name = Acuity WordPress User Importer
 description = Connects to a WordPress database to import and sync users. Maps WP IDs to Backdrop and injects legacy password hashes.
 backdrop = 1.x
 type = module
 package = Acuity Utilities
 dependencies[] = user
 dependencies[] = field
-dependencies[] = abms_wpauth
 configure = admin/config/acuity/utils/wpuser
 version = 1.x-1.0
